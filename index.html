@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LifeLink – Blood Bank Inventory & Donor Matcher</title>
+<style>
+:root{--bg:#faf5f5;--card:#fff;--text:#2a1c1c;--muted:#7a6464;--red:#c62828;--red2:#8e1b1b;--line:#ead9d9;--ok:#2e7d32;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#1a1212;--card:#251a1a;--text:#f1e6e6;--muted:#b49c9c;--red:#ef5350;--red2:#ff8a80;--line:#3a2828;--ok:#81c784;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text)}
+header{background:linear-gradient(135deg,#8e1b1b,#e53935);color:#fff;padding:26px 16px;text-align:center}
+header h1{margin:0;font-size:1.8rem}header p{margin:6px 0 0;opacity:.9}
+nav{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;padding:12px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+nav button{border:1px solid var(--line);background:transparent;color:var(--text);padding:8px 14px;border-radius:20px;cursor:pointer;font-size:.9rem}
+nav button.on{background:var(--red);color:#fff;border-color:var(--red)}
+main{max-width:1000px;margin:20px auto;padding:0 14px 40px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:18px}
+h2{margin:0 0 12px;color:var(--red2);font-size:1.2rem}h3{margin:16px 0 8px;font-size:1rem;color:var(--red2)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
+label{display:block;font-size:.8rem;color:var(--muted);margin-bottom:3px}
+input,select{width:100%;padding:9px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font-size:.95rem}
+.chk{display:flex;gap:8px;align-items:center;margin-top:12px;font-size:.9rem}.chk input{width:auto}
+.btn{margin-top:14px;background:var(--red);color:#fff;border:0;padding:10px 20px;border-radius:8px;cursor:pointer;font-size:.95rem}
+.btn.sm{margin:0;padding:5px 10px;font-size:.8rem}.btn.alt{background:transparent;color:var(--red);border:1px solid var(--red)}
+.msg{margin-top:10px;font-size:.9rem;min-height:1.2em;color:var(--red)}.msg.ok{color:var(--ok)}
+.tw{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:.9rem}
+th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}th{color:var(--muted);font-weight:600}
+.empty{color:var(--muted);font-style:italic;padding:8px 0}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px}
+.tile{border:1px solid var(--line);border-radius:12px;padding:12px;text-align:center;background:var(--bg)}
+.tile b{display:block;font-size:1.5rem;color:var(--red)}.tile span{font-size:.8rem;color:var(--muted)}
+.tile.low{border-color:var(--red);background:rgba(198,40,40,.1)}
+.tag{padding:2px 8px;border-radius:10px;font-size:.75rem;background:var(--red);color:#fff}.tag.g{background:var(--ok)}.tag.n{background:var(--muted)}
+footer{text-align:center;color:var(--muted);font-size:.8rem;padding:20px}
+</style>
+</head>
+<body>
+<header><h1>🩸 LifeLink</h1><p>Blood Bank Inventory &amp; Donor Matcher</p></header>
+<nav id="nav"></nav>
+<main id="main"></main>
+<footer>LifeLink · KL University · Problem Solving using Programming (JAVA) – web version</footer>
+
+<script>
+const GROUPS=["A+","A-","B+","B-","AB+","AB-","O+","O-"];
+/* recipient -> compatible donor groups */
+const COMPAT={"A+":["A+","A-","O+","O-"],"A-":["A-","O-"],"B+":["B+","B-","O+","O-"],"B-":["B-","O-"],"AB+":GROUPS,"AB-":["AB-","A-","B-","O-"],"O+":["O+","O-"],"O-":["O-"]};
+const LOW=5;
+const today=()=>new Date().toISOString().slice(0,10);
+const sample=()=>({
+  donors:[{id:"D101",name:"Ravi Teja",age:28,gender:"Male",group:"O+",phone:"9876543210",last:"2026-05-01",donations:3,avail:true},
+          {id:"D102",name:"Anitha Rao",age:34,gender:"Female",group:"A+",phone:"9123456780",last:"2026-08-20",donations:2,avail:true},
+          {id:"D103",name:"Kiran Kumar",age:41,gender:"Male",group:"O-",phone:"8899001122",last:"2026-09-10",donations:5,avail:false},
+          {id:"D104",name:"Sneha Reddy",age:25,gender:"Female",group:"B+",phone:"7012345678",last:"2026-04-15",donations:1,avail:true}],
+  inv:Object.fromEntries(GROUPS.map((g,i)=>[g,{units:[12,4,9,3,2,1,15,3][i],donated:[12,4,9,3,2,1,15,3][i],issued:0}])),
+  reqs:[],nextId:105
+});
+let db;try{db=JSON.parse(localStorage.getItem("lifelink"))}catch(e){}
+if(!db||!db.donors)db=sample();
+const save=()=>{try{localStorage.setItem("lifelink",JSON.stringify(db))}catch(e){}};
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const v=id=>$(id).value.trim();
+const say=(t,ok)=>{const m=$("msg");m.textContent=t;m.className="msg"+(ok?" ok":"")};
+const opts=a=>a.map(o=>`<option>${o}</option>`).join("");
+function table(h,rows){
+  if(!rows.length)return `<div class="empty">No records yet.</div>`;
+  return `<div class="tw"><table><tr>${h.map(x=>`<th>${x}</th>`).join("")}</tr>${rows.map(r=>`<tr>${r.map(c=>`<td>${String(c).startsWith("<")?c:esc(c)}</td>`).join("")}</tr>`).join("")}</table></div>`;
+}
+const tag=(t,c)=>`<span class="tag ${c||""}">${esc(t)}</span>`;
+
+/* ---------- Donor module ---------- */
+function addDonor(){
+  const name=v("n"),age=+v("a"),phone=v("p");
+  if(!name||!v("a")||!phone)return say("Please fill all fields.");
+  if(age<18||age>65)return say("Donor age must be between 18 and 65.");
+  if(!/^[6-9][0-9]{9}$/.test(phone))return say("Invalid mobile number (10 digits, starts with 6-9).");
+  if(db.donors.some(d=>d.phone===phone))return say("A donor with this mobile number already exists.");
+  const id="D"+db.nextId++;
+  db.donors.push({id,name,age,gender:v("g"),group:v("bg"),phone,last:"",donations:0,avail:true});
+  save();say("Donor registered. Donor ID: "+id,1);draw(true);
+}
+function toggleAvail(id){const d=db.donors.find(x=>x.id===id);d.avail=!d.avail;save();draw()}
+function donate(id){
+  const d=db.donors.find(x=>x.id===id);
+  d.donations++;d.last=today();d.avail=false;
+  const s=db.inv[d.group];s.units++;s.donated++;save();draw();
+}
+function delDonor(id){if(confirm("Remove donor "+id+"?")){db.donors=db.donors.filter(d=>d.id!==id);save();draw()}}
+
+/* ---------- Inventory module ---------- */
+function stockAdd(){
+  const g=v("ig"),u=parseInt(v("iu"));
+  if(!(u>0))return say("Enter a valid number of units.");
+  db.inv[g].units+=u;db.inv[g].donated+=u;save();say(u+" unit(s) of "+g+" added.",1);draw(true);
+}
+
+/* ---------- Matching ---------- */
+function match(group,compat){
+  const gs=compat?COMPAT[group]:[group];
+  return db.donors.filter(d=>d.avail&&gs.includes(d.group)).sort((a,b)=>(a.group===group?0:1)-(b.group===group?0:1));
+}
+const donorRows=l=>table(["Donor ID","Name","Group","Phone","Last donation"],l.map(d=>[d.id,d.name,d.group,d.phone,d.last||"–"]));
+
+/* ---------- Request module ---------- */
+function addReq(){
+  const p=v("rp"),g=v("rg"),u=parseInt(v("ru")),h=v("rh");
+  if(!p||!h||!(u>0))return say("Please fill all fields with valid values.");
+  const ok=db.inv[g].units>=u;
+  if(ok){db.inv[g].units-=u;db.inv[g].issued+=u}
+  const m=match(g,true);
+  db.reqs.push({id:"R"+(db.reqs.length+101),patient:p,group:g,units:u,hospital:h,date:today(),status:ok?"Fulfilled":"Pending",matched:m.length});
+  save();
+  say(ok?`Request fulfilled: ${u} unit(s) of ${g} issued from stock.`:`Insufficient stock (${db.inv[g].units} unit(s) of ${g}). ${m.length} matching donor(s) found – see Donor Matcher.`,ok);
+  draw(true);
+}
+
+/* ---------- Views ---------- */
+const stockTiles=()=>`<div class="tiles">${GROUPS.map(g=>`<div class="tile${db.inv[g].units<LOW?" low":""}"><b>${db.inv[g].units}</b><span>${g} units</span></div>`).join("")}</div>`;
+let tab="dash";
+const TABS=[["dash","Dashboard"],["donor","Donors"],["inv","Inventory"],["req","Blood Requests"],["match","Donor Matcher"],["rep","Reports"]];
+$("nav").innerHTML=TABS.map(([k,l])=>`<button data-k="${k}" onclick="tab='${k}';draw()">${l}</button>`).join("");
+const msg=`<div class="msg" id="msg"></div>`;
+
+function view(){
+  const totalUnits=GROUPS.reduce((s,g)=>s+db.inv[g].units,0);
+  const low=GROUPS.filter(g=>db.inv[g].units<LOW);
+  switch(tab){
+  case"dash":return `<div class="card"><h2>Blood Stock Overview</h2>${stockTiles()}<p>Total units available: <b>${totalUnits}</b> · Registered donors: <b>${db.donors.length}</b> · Available donors: <b>${db.donors.filter(d=>d.avail).length}</b> · Requests: <b>${db.reqs.length}</b></p>${low.length?`<div class="msg">⚠ Low stock alert: ${low.join(", ")} (below ${LOW} units)</div>`:`<div class="msg ok">All blood groups have sufficient stock.</div>`}</div>`;
+  case"donor":return `<div class="card"><h2>Donor Registration</h2><div class="grid">
+    <div><label>Name</label><input id="n"></div><div><label>Age</label><input id="a" type="number" min="18" max="65"></div>
+    <div><label>Gender</label><select id="g">${opts(["Male","Female","Other"])}</select></div>
+    <div><label>Blood Group</label><select id="bg">${opts(GROUPS)}</select></div>
+    <div><label>Mobile Number</label><input id="p" type="tel"></div></div>
+    <button class="btn" onclick="addDonor()">Register Donor</button>${msg}</div>
+    <div class="card"><h2>Registered Donors</h2>${table(["ID","Name","Age","Gender","Group","Phone","Donations","Last donation","Availability","Actions"],db.donors.map(d=>[d.id,d.name,d.age,d.gender,d.group,d.phone,d.donations,d.last||"–",`<button class="btn sm ${d.avail?"":"alt"}" onclick="toggleAvail('${d.id}')">${d.avail?"Available":"Unavailable"}</button>`,`<button class="btn sm" onclick="donate('${d.id}')">Record donation</button> <button class="btn sm alt" onclick="delDonor('${d.id}')">Remove</button>`]))}</div>`;
+  case"inv":return `<div class="card"><h2>Add Blood Units</h2><div class="grid"><div><label>Blood Group</label><select id="ig">${opts(GROUPS)}</select></div><div><label>Units</label><input id="iu" type="number" min="1"></div></div><button class="btn" onclick="stockAdd()">Add to Inventory</button>${msg}</div>
+    <div class="card"><h2>Blood Inventory</h2>${table(["Blood Group","Available units","Total donated","Total issued","Status"],GROUPS.map(g=>[g,db.inv[g].units,db.inv[g].donated,db.inv[g].issued,db.inv[g].units<LOW?tag("Low","n"):tag("OK","g")]))}</div>`;
+  case"req":return `<div class="card"><h2>New Blood Request</h2><div class="grid">
+    <div><label>Patient Name</label><input id="rp"></div><div><label>Blood Group Required</label><select id="rg">${opts(GROUPS)}</select></div>
+    <div><label>Units Needed</label><input id="ru" type="number" min="1"></div><div><label>Hospital</label><input id="rh"></div></div>
+    <button class="btn" onclick="addReq()">Submit Request</button>${msg}</div>
+    <div class="card"><h2>Request History</h2>${table(["ID","Patient","Group","Units","Hospital","Date","Matching donors","Status"],db.reqs.map(r=>[r.id,r.patient,r.group,r.units,r.hospital,r.date,r.matched,tag(r.status,r.status==="Fulfilled"?"g":"n")]))}</div>`;
+  case"match":return `<div class="card"><h2>Donor Matcher</h2><div class="grid"><div><label>Required Blood Group</label><select id="mg" onchange="doMatch()">${opts(GROUPS)}</select></div></div>
+    <label class="chk"><input type="checkbox" id="mc" onchange="doMatch()" checked> Include compatible groups (e.g. O- can donate to everyone)</label>
+    <p class="empty">Shows only donors currently marked available.</p><div id="mres"></div></div>`;
+  case"rep":return `<div class="card"><h2>Reports</h2><h3>Inventory Report</h3>${table(["Group","Available","Donated","Issued"],GROUPS.map(g=>[g,db.inv[g].units,db.inv[g].donated,db.inv[g].issued]))}
+    <h3>Donor Report</h3>${table(["ID","Name","Group","Donations","Availability"],db.donors.map(d=>[d.id,d.name,d.group,d.donations,d.avail?"Available":"Unavailable"]))}
+    <h3>Request Report</h3>${table(["ID","Patient","Group","Units","Status"],db.reqs.map(r=>[r.id,r.patient,r.group,r.units,r.status]))}
+    <button class="btn" onclick="exportData()">⬇ Save report as lifelink_data.txt</button> <button class="btn alt" onclick="resetAll()">Reset to sample data</button></div>`;
+  }
+}
+function doMatch(){
+  const l=match(v("mg"),$("mc").checked);
+  $("mres").innerHTML=l.length?`<p><b>${l.length}</b> suitable donor(s) found:</p>`+donorRows(l):`<div class="empty">No suitable available donors found.</div>`;
+}
+function exportData(){
+  const L=["DONORS"].concat(db.donors.map(d=>[d.id,d.name,d.group,d.phone,d.donations].join(",")),["INVENTORY"],GROUPS.map(g=>g+","+db.inv[g].units),["REQUESTS"],db.reqs.map(r=>[r.id,r.patient,r.group,r.units,r.status].join(",")));
+  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([L.join("\n")],{type:"text/plain"}));a.download="lifelink_data.txt";a.click();
+}
+function resetAll(){if(confirm("Reset all data to sample data?")){db=sample();save();draw()}}
+function draw(keepMsg){
+  const m=keepMsg&&$("msg")?[$("msg").textContent,$("msg").className]:null;
+  $("main").innerHTML=view();
+  document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on",b.dataset.k===tab));
+  if(m&&$("msg")){$("msg").textContent=m[0];$("msg").className=m[1]}
+  if(tab==="match")doMatch();
+}
+draw();
+</script>
+</body>
+</html>
